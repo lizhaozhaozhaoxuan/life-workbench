@@ -1,0 +1,9 @@
+{
+  "name": "stock-quote",
+  "runtime": "deno2",
+  "entrypoint": "index.ts",
+  "import_map": {},
+  "compatibility": {
+    "edge-runtime": "1"
+  }
+}
