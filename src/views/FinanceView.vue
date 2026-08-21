@@ -16,6 +16,23 @@ function toCents(n: number): number {
   return Math.round(Number(n) * 100)
 }
 
+// 收支分类预设：按「支出 / 收入」分两套，避免记支出时蹦出「工资」之类收入项
+const EXPENSE_PRESETS = ['餐饮','交通','购物','居家','医疗','话费','礼物','学习','娱乐','服饰','旅行','社交','订阅','数码','美容','宠物','保险','其他']
+const INCOME_PRESETS = ['工资','理财','兼职','红包','退款','其他']
+// 合并用户历史上手填过的分类（同类型才出现），避免重复录入又保留自定义
+const usedCats = computed(() => {
+  const m = new Map<string, string>() // category -> type
+  tx.value.forEach((t) => { if (t.category) m.set(t.category, t.type) })
+  return m
+})
+const catOptions = computed(() => {
+  const presets = flowForm.value.type === 'expense' ? EXPENSE_PRESETS : INCOME_PRESETS
+  const used = [...usedCats.value.entries()]
+    .filter(([, ty]) => ty === flowForm.value.type)
+    .map(([c]) => c)
+  return [...new Set([...presets, ...used])]
+})
+
 const { items: tx, repo: txRepo } = useCollection('transactions')
 const { items: accounts, repo: accRepo } = useCollection('asset_accounts')
 const { items: golds, repo: goldRepo } = useCollection('asset_gold')
@@ -288,7 +305,7 @@ async function refreshStock(s: any) {
         <input v-model.number="flowForm.amount" type="number" step="0.01" class="input w-28" placeholder="金额" @keyup.enter="addTx" />
         <input v-model="flowForm.category" class="input w-28" list="cat-list" placeholder="分类" />
         <datalist id="cat-list">
-          <option v-for="c in ['餐饮','交通','购物','工资','理财','居家','医疗','其他']" :key="c" :value="c" />
+          <option v-for="c in catOptions" :key="c" :value="c" />
         </datalist>
         <input v-model="flowForm.trans_date" type="date" class="input w-auto" />
         <input v-model="flowForm.note" class="input flex-1 min-w-[120px]" placeholder="备注" @keyup.enter="addTx" />
