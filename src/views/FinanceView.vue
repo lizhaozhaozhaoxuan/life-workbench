@@ -70,22 +70,50 @@ const monthExpense = computed(() => {
   const cents = monthTx.value.filter((t) => t.type === 'expense').reduce((a, b) => a + toCents(b.amount), 0)
   return round2(cents / 100)
 })
-const expensePie = computed(() => {
+// 收支分类环形图：按当前 breakdownType（支出/收入）聚合；点击分类可下钻筛选流水
+const breakdownType = ref<'expense' | 'income'>('expense')
+const selectedCat = ref<string | null>(null)
+const catPie = computed(() => {
   // 内部以「分」累加，最后统一转「元」，确保分类汇总与总额严格相等
   const centsMap: Record<string, number> = {}
-  monthTx.value.filter((t) => t.type === 'expense').forEach((t) => {
+  monthTx.value.filter((t) => t.type === breakdownType.value).forEach((t) => {
     centsMap[t.category] = (centsMap[t.category] || 0) + toCents(t.amount)
   })
   const out: Record<string, number> = {}
   for (const k of Object.keys(centsMap)) out[k] = round2(centsMap[k] / 100)
   return out
 })
-const hasExpenseData = computed(() => Object.keys(expensePie.value).length > 0)
-const pieData = computed(() => ({
-  labels: Object.keys(expensePie.value),
-  datasets: [{ data: Object.values(expensePie.value), backgroundColor: ['#0ea5e9', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#ec4899', '#14b8a6', '#6366f1'] }]
-}))
-const pieOpts = { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right' as const } } }
+const hasCatData = computed(() => Object.keys(catPie.value).length > 0)
+const PIE_COLORS = ['#0ea5e9', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#ec4899', '#14b8a6', '#6366f1', '#a855f7', '#22c55e', '#eab308', '#06b6d4']
+const pieData = computed(() => {
+  const labels = Object.keys(catPie.value)
+  const data = Object.values(catPie.value)
+  // 选中分类时，其余切片半透明，突出当前选中项
+  const backgroundColor = labels.map((c, i) =>
+    selectedCat.value && selectedCat.value !== c ? PIE_COLORS[i % PIE_COLORS.length] + '55' : PIE_COLORS[i % PIE_COLORS.length]
+  )
+  return { labels, datasets: [{ data, backgroundColor, borderColor: '#fff', borderWidth: 2 }] }
+})
+const pieOpts = {
+  responsive: true,
+  maintainAspectRatio: false,
+  // 点击分类切片 -> 选中/取消该分类，下钻流水列表
+  onClick: (_e: any, elements: any[]) => {
+    if (!elements.length) return
+    const cat = (pieData.value.labels as string[])[elements[0].index]
+    selectedCat.value = selectedCat.value === cat ? null : cat
+  },
+  plugins: { legend: { position: 'right' as const, labels: { boxWidth: 12 } } }
+}
+// 流水列表：选中分类时仅显示该分类（否则显示全月）
+const visibleTx = computed(() =>
+  selectedCat.value ? monthTx.value.filter((t) => t.category === selectedCat.value) : monthTx.value
+)
+function clearCatFilter() { selectedCat.value = null }
+function switchBreakdown(t: 'expense' | 'income') {
+  breakdownType.value = t
+  selectedCat.value = null // 切换收支维度时清空筛选，避免支出/收入串类
+}
 
 // ---- 资产 ----
 const cashTotal = computed(() => round2(accounts.value.reduce((a, b) => a + Number(b.balance), 0)))
@@ -315,22 +343,33 @@ async function refreshStock(s: any) {
       <div class="grid gap-4 md:grid-cols-3">
         <div class="card p-3 md:col-span-2">
           <div class="mb-2 flex items-center justify-between">
-            <span class="text-sm font-medium">流水明细</span>
+            <span class="text-sm font-medium">流水明细<span v-if="selectedCat" class="ml-1 text-xs font-normal text-brand-600">· {{ selectedCat }}</span></span>
             <input v-model="month" type="month" class="input w-auto py-1 text-xs" />
           </div>
+          <div v-if="selectedCat" class="mb-2 flex items-center gap-2 text-xs">
+            <span class="rounded-full bg-brand-500/10 px-2 py-1 text-brand-600">筛选：{{ selectedCat }}（{{ visibleTx.length }} 笔）</span>
+            <button class="rounded-full bg-slate-100 px-2 py-1 text-slate-500 hover:bg-slate-200 dark:bg-slate-800" @click="clearCatFilter">✕ 取消筛选</button>
+          </div>
           <div class="space-y-1.5 max-h-96 overflow-auto">
-            <div v-for="t in monthTx" :key="t.id" class="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-slate-50 dark:hover:bg-slate-800">
+            <div v-for="t in visibleTx" :key="t.id" class="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-slate-50 dark:hover:bg-slate-800">
               <span class="chip" :class="t.type === 'expense' ? 'bg-rose-500/10 text-rose-500' : 'bg-emerald-500/10 text-emerald-500'">{{ t.category }}</span>
               <span class="flex-1 truncate text-sm text-slate-400">{{ t.trans_date }} {{ t.note }}</span>
               <span class="text-sm font-medium" :class="t.type === 'expense' ? 'text-rose-500' : 'text-emerald-500'">{{ t.type === 'expense' ? '-' : '+' }}{{ t.amount }}</span>
               <button class="text-slate-300 hover:text-rose-500" @click="removeTx(t)">🗑</button>
             </div>
-            <p v-if="!monthTx.length" class="py-6 text-center text-sm text-slate-400">本月暂无记录</p>
+            <p v-if="!visibleTx.length" class="py-6 text-center text-sm text-slate-400">本月暂无记录</p>
           </div>
         </div>
         <div class="card p-3">
-          <div class="mb-2 text-sm font-medium">支出分类</div>
-          <div class="h-48"><Doughnut v-if="hasExpenseData" :data="pieData" :options="pieOpts" /><div v-else class="flex h-full items-center justify-center text-sm text-slate-400">暂无支出</div></div>
+          <div class="mb-2 flex items-center justify-between">
+            <span class="text-sm font-medium">收支分类</span>
+            <div class="flex rounded-lg border border-slate-200 text-xs dark:border-slate-700">
+              <button class="px-2 py-1" :class="breakdownType === 'expense' ? 'bg-rose-500 text-white' : ''" @click="switchBreakdown('expense')">支出</button>
+              <button class="px-2 py-1" :class="breakdownType === 'income' ? 'bg-emerald-500 text-white' : ''" @click="switchBreakdown('income')">收入</button>
+            </div>
+          </div>
+          <div class="h-48"><Doughnut v-if="hasCatData" :data="pieData" :options="pieOpts" /><div v-else class="flex h-full items-center justify-center text-sm text-slate-400">暂无数据</div></div>
+          <p v-if="selectedCat" class="mt-2 text-xs text-slate-400">已选中：{{ selectedCat }}（点图表同项取消）</p>
         </div>
       </div>
     </div>
