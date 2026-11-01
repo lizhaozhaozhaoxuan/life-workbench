@@ -4,6 +4,7 @@ import dayjs from 'dayjs'
 import { Doughnut, Line } from 'vue-chartjs'
 import { useCollection } from '@/composables/useCollection'
 import Modal from '../components/Modal.vue'
+import FlowQuickEntryModal from '@/components/finance/FlowQuickEntryModal.vue'
 import { fetchStockQuote } from '@/lib/stock'
 import { analyzeStock } from '@/lib/indicators'
 
@@ -45,6 +46,23 @@ const month = ref(dayjs().format('YYYY-MM'))
 
 // ---- 收支 ----
 const flowForm = ref({ type: 'expense', amount: '', category: '', note: '', trans_date: dayjs().format('YYYY-MM-DD') })
+
+// 一句话快速录入：解析结果先回填表单，确认无误再点「记一笔」落库（防误记）
+const quickOpen = ref(false)
+const filledFlash = ref('')
+const flowSets = computed(() => ({ expense: EXPENSE_PRESETS, income: INCOME_PRESETS }))
+function applyQuick(p: { type: 'expense' | 'income'; amount: number; category: string; note: string; trans_date: string }) {
+  flowForm.value = {
+    type: p.type,
+    amount: String(p.amount),
+    category: p.category,
+    note: p.note,
+    trans_date: p.trans_date
+  }
+  quickOpen.value = false
+  filledFlash.value = `已填入 ${p.type === 'expense' ? '支出' : '收入'} ¥${p.amount} · ${p.category} · ${p.trans_date}${p.note ? ' · ' + p.note : ''}`
+  window.setTimeout(() => { filledFlash.value = '' }, 4000)
+}
 async function addTx() {
   const amt = Number(flowForm.value.amount)
   if (!amt || amt <= 0) return
@@ -56,6 +74,7 @@ async function addTx() {
     trans_date: flowForm.value.trans_date
   })
   flowForm.value = { type: 'expense', amount: '', category: '', note: '', trans_date: dayjs().format('YYYY-MM-DD') }
+  filledFlash.value = ''
 }
 async function removeTx(t: any) {
   if (confirm('删除该笔记录？')) await txRepo.remove(t.id)
@@ -337,8 +356,16 @@ async function refreshStock(s: any) {
         </datalist>
         <input v-model="flowForm.trans_date" type="date" class="input w-auto" />
         <input v-model="flowForm.note" class="input flex-1 min-w-[120px]" placeholder="备注" @keyup.enter="addTx" />
+        <button class="btn-ghost" title="一句话录入（如：今天餐饮消费30元，备注海底捞）" @click="quickOpen = true">🎤</button>
         <button class="btn-primary" @click="addTx">记一笔</button>
       </div>
+
+      <div v-if="filledFlash" class="card flex flex-wrap items-center gap-2 border-l-4 border-brand-500 p-2 text-xs">
+        <span class="text-slate-600 dark:text-slate-300">✅ {{ filledFlash }}</span>
+        <span class="text-slate-400">请确认无误后点「记一笔」</span>
+      </div>
+
+      <FlowQuickEntryModal :open="quickOpen" :sets="flowSets" @close="quickOpen = false" @apply="applyQuick" />
 
       <div class="grid gap-4 md:grid-cols-3">
         <div class="card p-3 md:col-span-2">
